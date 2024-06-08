@@ -1,10 +1,12 @@
 mod board_games;
 
+use std::fs;
+
 use board_games::BoardGame;
 // use std::collections::HashMap;
 
-use tokio::sync::Mutex;
-use std::sync::Arc;
+// use tokio::sync::Mutex;
+// use std::sync::Arc;
 
 use teloxide::{prelude::*, utils::command::BotCommands};
 
@@ -22,10 +24,10 @@ enum Command {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // load board games from json
-    let board_games: Vec<BoardGame> = serde_json::from_str(include_str!("../data/board_games_list.json"))?;
+    let content: String = fs::read_to_string("./data/board_games_list.json")?;
+    let board_games: Vec<BoardGame> = serde_json::from_str(&content)?;
 
     println!("Loaded {} board games", board_games.len());
-    println!("First game: {:?}", board_games[0]);
 
     let bot = Bot::from_env();
 

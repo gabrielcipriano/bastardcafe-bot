@@ -17,7 +17,7 @@ pub struct BoardGame {
     pub url: String,
     pub name: String,
     pub locations: Vec<Location>,
-    pub raw: String,
+    // pub raw: String,
 }
 
 impl BoardGame {
