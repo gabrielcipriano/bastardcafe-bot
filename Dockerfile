@@ -13,3 +13,4 @@ FROM debian:stable-slim
 RUN apt-get update && apt-get install -y libssl-dev pkg-config ca-certificates
 COPY data data
 COPY --from=builder /usr/src/bastard-cafe-bot/target/release/bastard-cafe-bot /usr/local/bin/bastard-cafe-bot
+CMD bastard-cafe-bot

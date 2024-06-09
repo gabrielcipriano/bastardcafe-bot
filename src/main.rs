@@ -9,6 +9,8 @@ use board_games::BoardGame;
 // use std::sync::Arc;
 
 use teloxide::{prelude::*, utils::command::BotCommands};
+use tokio::sync::oneshot;
+use warp::Filter;
 
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase", description = "These commands are supported:")]
@@ -20,6 +22,25 @@ enum Command {
     S(String),
 }
 
+fn setup_healthcheck() -> oneshot::Sender<()> {
+    let health_check = warp::path!("health")
+    .map(|| warp::reply::json(&"ok"));
+
+    let (tx, rx) = oneshot::channel();
+
+    let (addr, server) = warp::serve(health_check)
+        .bind_with_graceful_shutdown(([127, 0, 0, 1], 8080), async {
+            rx.await.ok();
+        });
+
+
+    // Spawn the server into a runtime
+    tokio::task::spawn(server);
+    println!("Listening on http://{}/health", addr);
+
+    return tx;
+}
+
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -28,6 +49,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let board_games: Vec<BoardGame> = serde_json::from_str(&content)?;
 
     println!("Loaded {} board games", board_games.len());
+
+    let shutdown_server_tx = setup_healthcheck();
 
     let bot = Bot::from_env();
 
@@ -75,13 +98,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Command::repl(bot, cmd_handler).await;
 
-    // let bot = Bot::from_env();
-
-    // teloxide::repl(bot, |bot: Bot, msg: Message| async move {
-    //     bot.send_dice(msg.chat.id).await?;
-    //     Ok(())
-    // })
-    // .await;
+    // start the shutdown...
+    let _ = shutdown_server_tx.send(());
+    println!("Shutting down...");
 
     Ok(())
 }
