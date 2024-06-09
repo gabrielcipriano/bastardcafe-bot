@@ -29,7 +29,7 @@ fn setup_healthcheck() -> oneshot::Sender<()> {
     let (tx, rx) = oneshot::channel();
 
     let (addr, server) = warp::serve(health_check)
-        .bind_with_graceful_shutdown(([127, 0, 0, 1], 8080), async {
+        .bind_with_graceful_shutdown(([0,0,0,0], 8080), async {
             rx.await.ok();
         });
 
