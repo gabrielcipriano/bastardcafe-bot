@@ -1,8 +1,9 @@
 mod board_games;
 
+use std::{error::Error, sync::Arc};
 use board_games::BoardGame;
 
-use teloxide::{prelude::*, utils::command::BotCommands};
+use teloxide::{prelude::*, types::Me, utils::command::BotCommands};
 use tokio::sync::oneshot;
 use warp::Filter;
 use std::env;
@@ -81,38 +82,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let bot = Bot::from_env();
 
-    let cmd_handler = move |bot: Bot, msg: Message, cmd: Command| {
-        let board_games = board_games.clone();
-        // println!("{:?}", msg);
-        async move {
-            match cmd {
-                Command::Help => bot.send_message(msg.chat.id, Command::descriptions().to_string()).await?,
-                Command::Search(term) | Command::S(term) => {
-                    let term = term.trim();
-                    if term.len() < 3 {
-                        bot.send_message(msg.chat.id, "Search term must be at least 3 characters long").await?;
-                        return Ok(());
-                    }
+    let handler = dptree::entry()
+        .branch(Update::filter_message().endpoint(message_handler));
+        // .branch(Update::filter_callback_query().endpoint(callback_handler))
+        // .branch(Update::filter_inline_query().endpoint(inline_query_handler));
 
-                    let games = board_games.iter().filter(|game| game.name.to_lowercase().contains(&term.to_lowercase())).collect::<Vec<&BoardGame>>();
-                    if games.is_empty() {
-                        bot.send_message(msg.chat.id, "No games found").await?;
-                        return Ok(());
-                    }
-                    let games_str = games.iter().map(|game| game.human_friendly()).collect::<Vec<String>>().join("\n\n");
-                    bot.send_message(msg.chat.id, games_str).await?;
-                    return Ok(());
-                }
-            };
-            Ok(())
-        }
-    };
-
-    Command::repl(bot, cmd_handler).await;
+    Dispatcher::builder(bot, handler)
+        .dependencies(dptree::deps![board_games])
+        .enable_ctrlc_handler().build().dispatch().await;
 
     // start the shutdown...
     let _ = shutdown_server_tx.send(());
     println!("Shutting down...");
 
     Ok(())
+}
+
+
+/// Parse the text wrote on Telegram and check if that text is a valid command
+async fn message_handler(
+    bot: Bot,
+    msg: Message,
+    me: Me,
+    board_games: Vec<BoardGame>
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if let Some(text) = msg.text() {
+        match BotCommands::parse(text, me.username()) {
+            Ok(Command::Help) => bot.send_message(msg.chat.id, Command::descriptions().to_string()).await?,
+            Ok(Command::Search(term)) | Ok(Command::S(term)) => {
+                return search_handler(bot, term, msg.chat.id, board_games).await;
+            },
+            Err(_) => {
+                return search_handler(bot, text.to_string(), msg.chat.id, board_games).await;
+            },
+        };
+    }
+
+    Ok(())
+}
+
+async fn search_handler(bot: Bot, term: String, chat_id: ChatId, board_games: Vec<BoardGame>) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let term = term.trim();
+    if term.len() < 3 {
+        bot.send_message(chat_id, "Search term must be at least 3 characters long").await?;
+        return Ok(());
+    }
+
+    let games = board_games.iter().filter(|game| game.name.to_lowercase().contains(&term.to_lowercase())).collect::<Vec<&BoardGame>>();
+    // let games: Vec<BoardGame> = vec![];
+    if games.is_empty() {
+        bot.send_message(chat_id, "No games found").await?;
+        return Ok(());
+    }
+    let games_str = games.iter().map(|game| game.human_friendly()).collect::<Vec<String>>().join("\n\n");
+    bot.send_message(chat_id, games_str).await?;
+    return Ok(());
 }
