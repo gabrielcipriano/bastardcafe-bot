@@ -60,7 +60,7 @@ async fn handler_with_metrics(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let start = std::time::Instant::now();
     let text = msg.text().unwrap_or("");
-    let chat_id = msg.chat.id.0;
+    let chat_id = msg.chat.id;
 
     if is_secret_command(text) {
         let stats = fetch_stats(dba.clone()).await;
@@ -69,7 +69,7 @@ async fn handler_with_metrics(
                 bot.send_message(chat_id, msg).await?;
             },
             Err(e) => {
-                bot.send_message(chat_id, "Failed to fetch metrics").await?;
+                bot.send_message(chat_id, format!("Failed to fetch stats: {}", e)).await?;
             }
         }
         return Ok(());
@@ -103,9 +103,9 @@ async fn handler_with_metrics(
         },
         Ok(conn) => {
             let query = "INSERT INTO bot_metrics (bot_id, chat_id, text, ok, details, response_time_ms, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'))";
-            let db_result = conn.execute(query, libsql::params![bot_id, chat_id, text, ok, details_txt.clone(), response_time]).await;
+            let db_result = conn.execute(query, libsql::params![bot_id, chat_id.0, text, ok, details_txt.clone(), response_time]).await;
             let ok_txt = if ok { "ok" } else { "error" };
-            println!("[{}] [{}] [{}ms] [{}]: {} {} {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), bot_id, response_time, ok_txt, chat_id, text, details_txt);
+            println!("[{}] [{}] [{}ms] [{}]: {} {} {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), bot_id, response_time, ok_txt, chat_id.0, text, details_txt);
             if let Err(e) = db_result {
                 eprintln!("Failed to insert metrics: {}", e);
             }
@@ -115,16 +115,16 @@ async fn handler_with_metrics(
     return Ok(());
 }
 
-fn is_secret_command(txt: &str) {
+fn is_secret_command(txt: &str) -> bool {
     let token = env::var("ADMIN_COMMANDS_TOKEN").unwrap_or("".to_string());
     if token == "" {
-        return false
+        return false;
     }
 
-    return txt == format!("/admin-stats {}", token)
+    return txt == format!("/admin-stats {}", token);
 }
 
-async fn fetch_stats(db: Arc<Database>) {
+async fn fetch_stats(db: Arc<Database>)-> Result<String, Box<dyn Error + Send + Sync>>{
     let conn = db.connect();
     match conn {
         Err(e) => {
@@ -132,17 +132,23 @@ async fn fetch_stats(db: Arc<Database>) {
             return Ok("Failed to connect to database".to_string());
         },
         Ok(conn) => {
-            let db_result = conn.query("SELECT id, text, ok, details, response_time_ms, created_at FROM bot_metrics ORDER BY id DESC LIMIT 10", []).await;
+            let db_result = conn.query("SELECT id, text, ok, details, response_time_ms, created_at FROM bot_metrics ORDER BY id DESC LIMIT 10", libsql::params!([])).await;
             match db_result {
-                Ok(rows) => {
+                Ok(mut rows) => {
                     let mut msg = "".to_string();
-                    for row in rows {
-                        let id = row.get_value(0).unwrap().as_integer().unwrap();
-                        let text = row.get_value(3).unwrap().as_text().unwrap();
-                        let ok = row.get_value(4).unwrap().as_boolean().unwrap();
-                        let details = row.get_value(5).unwrap().as_text().unwrap();
-                        let response_time = row.get_value(6).unwrap().as_integer().unwrap();
-                        let created_at = row.get_value(7).unwrap().as_text().unwrap();
+                    while let Some(row) = rows.next().await.unwrap() {
+                        let id_value = row.get_value(0).unwrap();
+                        let id = id_value.as_integer().unwrap();
+                        let text_value = row.get_value(1).unwrap();
+                        let text = text_value.as_text().unwrap();
+                        let ok_value = row.get_value(2).unwrap();
+                        let ok = ok_value.as_integer().unwrap();
+                        let details_value = row.get_value(3).unwrap();
+                        let details = details_value.as_text().unwrap();
+                        let response_time_value = row.get_value(4).unwrap();
+                        let response_time = response_time_value.as_integer().unwrap();
+                        let created_at_value = row.get_value(5).unwrap();
+                        let created_at = created_at_value.as_text().unwrap(); // I hate rust, have to find a better way to do this
 
                         println!("{} {} {} {} {}ms {}", id, text, ok, details, response_time, created_at);
                         msg.push_str(&format!("{} {} {} {} {}ms {}\n", id, text, ok, details, response_time, created_at));
