@@ -20,6 +20,8 @@ enum Command {
     Search(String),
     #[command(description = "An alias for /search. Searches for a board game in the bastard's shelfs.")]
     S(String),
+    #[command(description = "initiates the search bot.")]
+    Start,
 }
 
 
@@ -89,6 +91,7 @@ async fn handler_with_metrics(
             -1 => json!({"code": -1, "command": "Help", "response_type": "Help command", "user": user_hash}),
             -2 => json!({"code": -2, "command": "search", "response_type": "Search term too short", "user": user_hash}),
             -666 => json!({"code": -666, "command": "unknown", "response_type": "should not happen", "user": user_hash}),
+            -4 => json!({"code": -4, "command": "Start", "response_type": "Welcome message", "user": user_hash}),
             _ => json!({ "total": len_or_code, "user": user_hash, "code": 0, "command": "search", "response_type": "Search results"}),
         },
         Err(e) => json!({"code": -1000, "command": "unknown", "response_type": "Error", "error": e.to_string()})
@@ -180,6 +183,10 @@ async fn message_handler(
             },
             Ok(Command::Search(term)) | Ok(Command::S(term)) => {
                 return search_handler(bot, term, msg.chat.id, board_games).await;
+            },
+            Ok(Command::Start) => {
+                bot.send_message(msg.chat.id, "Welcome to the bastard's shelfs!\nPlease send me the name of the board game you're looking for.").await?;
+                return Ok(-4);
             },
             Err(_) => {
                 return search_handler(bot, text.to_string(), msg.chat.id, board_games).await;
