@@ -209,8 +209,24 @@ async fn search_handler(bot: Bot, term: String, chat_id: ChatId, board_games: Ve
         bot.send_message(chat_id, "No games found").await?;
         return Ok(0);
     }
-    let games_str = games.iter().map(|game| game.human_friendly()).collect::<Vec<String>>().join("\n\n");
-    bot.send_message(chat_id, games_str).await?;
+    let games_str_vec = games.iter().map(|game| game.markdown_v2()).collect::<Vec<String>>();
+
+    // sum str length up to 4096
+    let mut sum_str = 0;
+    let mut last_index = 0;
+    // get index of last
+    for (index, game_str) in games_str_vec.iter().enumerate(){
+        if sum_str + game_str.len() > 4096 - (index * 2) { // subtracting 2 for the 2 new line character in the join
+            break;
+        }
+        sum_str += game_str.len();
+        last_index = index;
+    }
+
+    let games_str = games_str_vec[0..last_index].join("\n\n");
+
+    bot.send_message(chat_id, games_str, ).parse_mode(teloxide::types::ParseMode::MarkdownV2).await?;
+    
     return Ok(games.len() as i32);
 }
 
