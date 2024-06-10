@@ -16,8 +16,9 @@ use libsql::{Builder, Database};
 enum Command {
     #[command(description = "display this text.")]
     Help,
-    #[command(description = "Searches for a board game in the bastard's shelfs. An alias for /search")]
+    #[command(description = "Searches for a board game in the bastard's shelfs.")]
     Search(String),
+    #[command(description = "An alias for /search. Searches for a board game in the bastard's shelfs.")]
     S(String),
 }
 
@@ -60,7 +61,22 @@ async fn handler_with_metrics(
     let start = std::time::Instant::now();
     let text = msg.text().unwrap_or("");
     let chat_id = msg.chat.id.0;
+
+    if is_secret_command(text) {
+        let stats = fetch_stats(dba.clone()).await;
+        match stats {
+            Ok(msg) => {
+                bot.send_message(chat_id, msg).await?;
+            },
+            Err(e) => {
+                bot.send_message(chat_id, "Failed to fetch metrics").await?;
+            }
+        }
+        return Ok(());
+    }
+
     let result = message_handler(bot, msg.clone(), me, board_games).await; // Pass the cloned message
+
     let response_time = start.elapsed().as_millis().try_into().unwrap_or(-1);
     let bot_id = "bastard_cafe_bot";
     let ok = result.is_ok();
@@ -96,11 +112,52 @@ async fn handler_with_metrics(
         }
     }
 
-    
-
     return Ok(());
 }
 
+fn is_secret_command(txt: &str) {
+    let token = env::var("ADMIN_COMMANDS_TOKEN").unwrap_or("".to_string());
+    if token == "" {
+        return false
+    }
+
+    return txt == format!("/admin-stats {}", token)
+}
+
+async fn fetch_stats(db: Arc<Database>) {
+    let conn = db.connect();
+    match conn {
+        Err(e) => {
+            eprintln!("Failed to connect to database: {}", e);
+            return Ok("Failed to connect to database".to_string());
+        },
+        Ok(conn) => {
+            let db_result = conn.query("SELECT id, text, ok, details, response_time_ms, created_at FROM bot_metrics ORDER BY id DESC LIMIT 10", []).await;
+            match db_result {
+                Ok(rows) => {
+                    let mut msg = "".to_string();
+                    for row in rows {
+                        let id = row.get_value(0).unwrap().as_integer().unwrap();
+                        let text = row.get_value(3).unwrap().as_text().unwrap();
+                        let ok = row.get_value(4).unwrap().as_boolean().unwrap();
+                        let details = row.get_value(5).unwrap().as_text().unwrap();
+                        let response_time = row.get_value(6).unwrap().as_integer().unwrap();
+                        let created_at = row.get_value(7).unwrap().as_text().unwrap();
+
+                        println!("{} {} {} {} {}ms {}", id, text, ok, details, response_time, created_at);
+                        msg.push_str(&format!("{} {} {} {} {}ms {}\n", id, text, ok, details, response_time, created_at));
+                    }
+                    return Ok(msg);
+                },
+                Err(e) => {
+                    eprintln!("Failed to fetch metrics: {}", e);
+                    return Ok("Failed to fetch metrics".to_string());
+                }
+            }
+            
+        }
+    }
+}
 
 /// Parse the text wrote on Telegram and check if that text is a valid command
 async fn message_handler(
@@ -126,7 +183,6 @@ async fn message_handler(
     Ok(-666)
 }
 
-
 async fn search_handler(bot: Bot, term: String, chat_id: ChatId, board_games: Vec<BoardGame>) -> Result<i32, Box<dyn Error + Send + Sync>> {
     let term = term.trim();
     if term.len() < 3 {
@@ -144,8 +200,6 @@ async fn search_handler(bot: Bot, term: String, chat_id: ChatId, board_games: Ve
     bot.send_message(chat_id, games_str).await?;
     return Ok(games.len() as i32);
 }
-
-
 
 // DATABASE FETCHING
 async fn fetch_board_games() -> Result<(Vec<BoardGame>, Database), Box<dyn std::error::Error>> {
@@ -180,8 +234,6 @@ async fn fetch_board_games() -> Result<(Vec<BoardGame>, Database), Box<dyn std::
 
     Ok((board_games, db))
 }
-
-
 
 // HEALTH CHECK ENDPOINT
 fn setup_healthcheck() -> oneshot::Sender<()> {
