@@ -89,7 +89,7 @@ async fn handler_with_metrics(
             -1 => json!({"code": -1, "command": "Help", "response_type": "Help command", "user": user_hash}),
             -2 => json!({"code": -2, "command": "search", "response_type": "Search term too short", "user": user_hash}),
             -666 => json!({"code": -666, "command": "unknown", "response_type": "should not happen", "user": user_hash}),
-            _ => json!({"code": 0, "command": "search", "response_type": "Search results", "total": len_or_code, "user": user_hash}),
+            _ => json!({ "total": len_or_code, "user": user_hash, "code": 0, "command": "search", "response_type": "Search results"}),
         },
         Err(e) => json!({"code": -1000, "command": "unknown", "response_type": "Error", "error": e.to_string()})
     };
@@ -105,7 +105,7 @@ async fn handler_with_metrics(
             let query = "INSERT INTO bot_metrics (bot_id, chat_id, text, ok, details, response_time_ms, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'))";
             let db_result = conn.execute(query, libsql::params![bot_id, chat_id.0, text, ok, details_txt.clone(), response_time]).await;
             let ok_txt = if ok { "ok" } else { "error" };
-            println!("[{}] [{}] [{}ms] [{}]: {} {} {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), bot_id, response_time, ok_txt, chat_id.0, text, details_txt);
+            println!("[{}] [{}] [{}ms] [{}]: {} '{}' {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), bot_id, response_time, ok_txt, chat_id.0, text, details_txt);
             if let Err(e) = db_result {
                 eprintln!("Failed to insert metrics: {}", e);
             }
@@ -121,7 +121,7 @@ fn is_secret_command(txt: &str) -> bool {
         return false;
     }
 
-    return txt == format!("/admin-stats {}", token);
+    return txt == format!("/admin {}", token);
 }
 
 async fn fetch_stats(db: Arc<Database>)-> Result<String, Box<dyn Error + Send + Sync>>{
@@ -132,7 +132,7 @@ async fn fetch_stats(db: Arc<Database>)-> Result<String, Box<dyn Error + Send + 
             return Ok("Failed to connect to database".to_string());
         },
         Ok(conn) => {
-            let db_result = conn.query("SELECT id, text, ok, details, response_time_ms, created_at FROM bot_metrics ORDER BY id DESC LIMIT 10", libsql::params!([])).await;
+            let db_result = conn.query("SELECT id, text, ok, details, response_time_ms, created_at FROM bot_metrics ORDER BY id DESC LIMIT 10", libsql::params!()).await;
             match db_result {
                 Ok(mut rows) => {
                     let mut msg = "".to_string();
@@ -150,8 +150,8 @@ async fn fetch_stats(db: Arc<Database>)-> Result<String, Box<dyn Error + Send + 
                         let created_at_value = row.get_value(5).unwrap();
                         let created_at = created_at_value.as_text().unwrap(); // I hate rust, have to find a better way to do this
 
-                        println!("{} {} {} {} {}ms {}", id, text, ok, details, response_time, created_at);
-                        msg.push_str(&format!("{} {} {} {} {}ms {}\n", id, text, ok, details, response_time, created_at));
+                        println!("{} '{}' {} {} {}ms {}", id, text, ok, details, response_time, created_at);
+                        msg.push_str(&format!("{} {} '{}' {} {}ms {}\n\n", id, ok, text, created_at, response_time, details));
                     }
                     return Ok(msg);
                 },
