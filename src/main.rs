@@ -124,7 +124,7 @@ fn is_secret_command(txt: &str) -> bool {
         return false;
     }
 
-    return txt == format!("/admin {}", token);
+    return txt == format!("/admin_{}", token);
 }
 
 async fn fetch_stats(db: Arc<Database>)-> Result<String, Box<dyn Error + Send + Sync>>{
@@ -205,25 +205,36 @@ async fn search_handler(bot: Bot, term: String, chat_id: ChatId, board_games: Ve
 
     let games = board_games.iter().filter(|game| game.name.to_lowercase().contains(&term.to_lowercase())).collect::<Vec<&BoardGame>>();
     // let games: Vec<BoardGame> = vec![];
+
+    if env::var("DEBUG").is_ok() {
+        println!("Searching for '{}'", term);
+        println!("Found {} games", games.len());
+        println!("games: {:?}", games);
+    }
     if games.is_empty() {
         bot.send_message(chat_id, "No games found").await?;
         return Ok(0);
     }
     let games_str_vec = games.iter().map(|game| game.markdown_v2()).collect::<Vec<String>>();
 
+    if env::var("DEBUG").is_ok() {
+        println!("games_str_vec: {:?}", games_str_vec);
+    }
     // sum str length up to 4096
     let mut sum_str = 0;
     let mut last_index = 0;
+    let join_separator = "\n\n";
     // get index of last
     for (index, game_str) in games_str_vec.iter().enumerate(){
-        if sum_str + game_str.len() > 4096 - (index * 2) { // subtracting 2 for the 2 new line character in the join
+        if sum_str + game_str.len() > 4096 - (index * join_separator.len()) { // subtracting 2 for the 2 new line character in the join
             break;
         }
         sum_str += game_str.len();
         last_index = index;
     }
 
-    let games_str = games_str_vec[0..last_index].join("\n\n");
+    let games_str = games_str_vec[0..last_index+1].join(&join_separator);
+
 
     bot.send_message(chat_id, games_str, ).parse_mode(teloxide::types::ParseMode::MarkdownV2).await?;
     
