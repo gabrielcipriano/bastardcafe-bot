@@ -15,7 +15,5 @@ COPY --from=builder /usr/src/bastard-cafe-bot/target/release/bastard-cafe-bot /u
 
 RUN apt-get install -y python3
 COPY bastard-scrapper /usr/src/bastard-scrapper
-WORKDIR /usr/src/bastard-scrapper
-RUN pip install requirements.txt
 
 CMD bastard-cafe-bot
